@@ -36,14 +36,12 @@ if not ret:
     cap.release()
     exit()
 
-# Mirror camera
 frame = cv2.flip(frame, 1)
 
-# Get frame size
 h, w, _ = frame.shape
 
 # -----------------------------
-# Create white canvas
+# White drawing canvas
 # -----------------------------
 
 canvas = 255 * np.ones(
@@ -57,6 +55,20 @@ canvas = 255 * np.ones(
 
 prev_x = None
 prev_y = None
+
+# Current drawing color
+current_color = (255, 0, 0)
+
+# -----------------------------
+# Color palette
+# -----------------------------
+
+colors = [
+    ((0, 0, 255), "RED"),
+    ((0, 255, 0), "GREEN"),
+    ((255, 0, 0), "BLUE"),
+    ((0, 255, 255), "YELLOW")
+]
 
 # -----------------------------
 # Start hand tracking
@@ -72,8 +84,41 @@ with HandLandmarker.create_from_options(options) as landmarker:
             print("Camera not detected")
             break
 
-        # Mirror the camera
+        # Mirror camera
         frame = cv2.flip(frame, 1)
+
+        # -----------------------------
+        # Draw color palette
+        # -----------------------------
+
+        box_width = 100
+        box_height = 70
+
+        for i, (color, name) in enumerate(colors):
+
+            x1 = i * box_width
+            y1 = 0
+
+            x2 = x1 + box_width
+            y2 = box_height
+
+            cv2.rectangle(
+                frame,
+                (x1, y1),
+                (x2, y2),
+                color,
+                -1
+            )
+
+            cv2.putText(
+                frame,
+                name,
+                (x1 + 10, 45),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                2
+            )
 
         # -----------------------------
         # Convert BGR → RGB
@@ -84,7 +129,6 @@ with HandLandmarker.create_from_options(options) as landmarker:
             cv2.COLOR_BGR2RGB
         )
 
-        # Convert to MediaPipe image
         mp_image = mp.Image(
             image_format=mp.ImageFormat.SRGB,
             data=rgb
@@ -97,86 +141,91 @@ with HandLandmarker.create_from_options(options) as landmarker:
         result = landmarker.detect(mp_image)
 
         # -----------------------------
-        # If hand detected
+        # Hand detected
         # -----------------------------
 
         if result.hand_landmarks:
 
             hand = result.hand_landmarks[0]
 
-            # Check whether index finger is up
+            # Index finger
             index_up = hand[8].y < hand[6].y
 
-            # Index fingertip = landmark 8
             fingertip = hand[8]
 
-            # Convert normalized coordinates → pixels
             x = int(fingertip.x * w)
             y = int(fingertip.y * h)
 
-            # Draw red fingertip
+            # -----------------------------
+            # Color selection
+            # -----------------------------
+
+            if y < box_height:
+
+                color_index = x // box_width
+
+                if 0 <= color_index < len(colors):
+
+                    current_color = colors[color_index][0]
+
+                    prev_x = None
+                    prev_y = None
+
+            # -----------------------------
+            # Draw fingertip
+            # -----------------------------
+
             cv2.circle(
                 frame,
                 (x, y),
                 10,
-                (0, 0, 255),
+                (0, 0, 0),
                 -1
             )
 
             # -----------------------------
-            # Index finger UP
+            # Drawing
             # -----------------------------
 
-            if index_up:
+            if index_up and y > box_height:
 
                 cv2.putText(
                     frame,
                     "DRAWING",
-                    (20, 50),
+                    (20, 110),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1,
-                    (0, 255, 0),
+                    current_color,
                     2
                 )
 
-                # Draw line
                 if prev_x is not None and prev_y is not None:
 
                     cv2.line(
                         canvas,
                         (prev_x, prev_y),
                         (x, y),
-                        (255, 0, 0),
+                        current_color,
                         5
                     )
 
-                # Update previous position
                 prev_x = x
                 prev_y = y
-
-            # -----------------------------
-            # Index finger DOWN
-            # -----------------------------
 
             else:
 
                 cv2.putText(
                     frame,
                     "NOT DRAWING",
-                    (20, 50),
+                    (20, 110),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1,
-                    (0, 0, 255),
+                    (0, 0, 0),
                     2
                 )
 
-                # Reset previous position
                 prev_x = None
                 prev_y = None
-
-        # -----------------------------
-        # No hand detected
-        # -----------------------------
 
         else:
 
@@ -184,17 +233,35 @@ with HandLandmarker.create_from_options(options) as landmarker:
             prev_y = None
 
         # -----------------------------
-        # Show webcam
+        # Show current color
+        # -----------------------------
+
+        cv2.putText(
+            frame,
+            "Current Color",
+            (450, 35),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 0),
+            2
+        )
+
+        cv2.rectangle(
+            frame,
+            (600, 10),
+            (680, 55),
+            current_color,
+            -1
+        )
+
+        # -----------------------------
+        # Show windows
         # -----------------------------
 
         cv2.imshow(
             "AirCanvas Camera",
             frame
         )
-
-        # -----------------------------
-        # Show drawing
-        # -----------------------------
 
         cv2.imshow(
             "AirCanvas Drawing",
@@ -205,12 +272,8 @@ with HandLandmarker.create_from_options(options) as landmarker:
         # Press Q to quit
         # -----------------------------
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        if cv2.waitKey(1) & 0xFF == ord("q"):
             break
-
-# -----------------------------
-# Release resources
-# -----------------------------
 
 cap.release()
 cv2.destroyAllWindows()
