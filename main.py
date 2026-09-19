@@ -59,6 +59,9 @@ prev_y = None
 # Current drawing color
 current_color = (255, 0, 0)
 
+# Eraser mode
+eraser_mode = False
+
 # -----------------------------
 # Color palette
 # -----------------------------
@@ -67,7 +70,9 @@ colors = [
     ((0, 0, 255), "RED"),
     ((0, 255, 0), "GREEN"),
     ((255, 0, 0), "BLUE"),
-    ((0, 255, 255), "YELLOW")
+    ((0, 255, 255), "YELLOW"),
+    ((100, 100, 100), "ERASER"),
+    ((0, 0, 0), "CLEAR")
 ]
 
 # -----------------------------
@@ -113,9 +118,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
             cv2.putText(
                 frame,
                 name,
-                (x1 + 10, 45),
+                (x1 + 5, 45),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
+                0.45,
                 (255, 255, 255),
                 2
             )
@@ -157,7 +162,7 @@ with HandLandmarker.create_from_options(options) as landmarker:
             y = int(fingertip.y * h)
 
             # -----------------------------
-            # Color selection
+            # Palette selection
             # -----------------------------
 
             if y < box_height:
@@ -166,8 +171,23 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
                 if 0 <= color_index < len(colors):
 
-                    current_color = colors[color_index][0]
+                    # Eraser selected
+                    if color_index == 4:
 
+                      eraser_mode = True
+
+                    elif color_index == 5:
+
+                       canvas[:] = 255
+                       eraser_mode = False
+
+                    else:
+
+                     eraser_mode = False
+                     current_color = colors[color_index][0]
+
+                    # Prevent unwanted line
+                    # after selecting a tool
                     prev_x = None
                     prev_y = None
 
@@ -189,25 +209,61 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
             if index_up and y > box_height:
 
-                cv2.putText(
-                    frame,
-                    "DRAWING",
-                    (20, 110),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    current_color,
-                    2
-                )
+                # -----------------------------
+                # Show current mode
+                # -----------------------------
+
+                if eraser_mode:
+
+                    cv2.putText(
+                        frame,
+                        "ERASER",
+                        (20, 110),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1,
+                        (100, 100, 100),
+                        2
+                    )
+
+                else:
+
+                    cv2.putText(
+                        frame,
+                        "DRAWING",
+                        (20, 110),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1,
+                        current_color,
+                        2
+                    )
+
+                # -----------------------------
+                # Draw / Erase
+                # -----------------------------
 
                 if prev_x is not None and prev_y is not None:
 
-                    cv2.line(
-                        canvas,
-                        (prev_x, prev_y),
-                        (x, y),
-                        current_color,
-                        5
-                    )
+                    if eraser_mode:
+
+                        # Eraser
+                        cv2.line(
+                            canvas,
+                            (prev_x, prev_y),
+                            (x, y),
+                            (255, 255, 255),
+                            20
+                        )
+
+                    else:
+
+                        # Normal drawing
+                        cv2.line(
+                            canvas,
+                            (prev_x, prev_y),
+                            (x, y),
+                            current_color,
+                            5
+                        )
 
                 prev_x = x
                 prev_y = y
@@ -239,20 +295,33 @@ with HandLandmarker.create_from_options(options) as landmarker:
         cv2.putText(
             frame,
             "Current Color",
-            (450, 35),
+            (650, 35),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
+            0.6,
             (0, 0, 0),
             2
         )
 
-        cv2.rectangle(
-            frame,
-            (600, 10),
-            (680, 55),
-            current_color,
-            -1
-        )
+        # Show gray box when eraser is active
+        if eraser_mode:
+
+            cv2.rectangle(
+                frame,
+              (800, 10),
+              (850, 55),
+                (100, 100, 100),
+                -1
+            )
+
+        else:
+
+            cv2.rectangle(
+                frame,
+                (690, 10),
+                (740, 55),
+                current_color,
+                -1
+            )
 
         # -----------------------------
         # Show windows
@@ -274,6 +343,10 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
+
+# -----------------------------
+# Release resources
+# -----------------------------
 
 cap.release()
 cv2.destroyAllWindows()
