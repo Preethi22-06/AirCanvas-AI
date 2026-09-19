@@ -57,6 +57,18 @@ prev_x = None
 prev_y = None
 
 # -----------------------------
+# Shape point collection
+# -----------------------------
+
+points = []
+
+# -----------------------------
+# Drawing mode
+# -----------------------------
+
+shape_mode = False
+
+# -----------------------------
 # Undo / Redo history
 # -----------------------------
 
@@ -210,21 +222,15 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
                     elif color_index == 5:
 
-                        # Save current canvas
-                        # before clearing
-
                         undo_stack.append(
                             canvas.copy()
                         )
 
-                        # New action means
-                        # redo history is cleared
-
                         redo_stack.clear()
 
-                        # Clear canvas
-
                         canvas[:] = 255
+
+                        points.clear()
 
                         eraser_mode = False
 
@@ -240,9 +246,6 @@ with HandLandmarker.create_from_options(options) as landmarker:
                             color_index
                         ][0]
 
-                    # Stop drawing after
-                    # selecting a tool
-
                     prev_x = None
                     prev_y = None
 
@@ -253,48 +256,65 @@ with HandLandmarker.create_from_options(options) as landmarker:
             if index_up and y > box_height:
 
                 # -----------------------------
-                # New stroke
+                # Start of new stroke
                 # -----------------------------
 
                 if prev_x is None or prev_y is None:
-
-                    # Save canvas before
-                    # starting the stroke
 
                     undo_stack.append(
                         canvas.copy()
                     )
 
-                    # New drawing after undo
-                    # removes redo history
-
                     redo_stack.clear()
 
+                    # Start collecting
+                    # points for this stroke
+
+                    points = []
+
                 # -----------------------------
-                # Show ERASER
+                # Store fingertip point
                 # -----------------------------
 
-                if eraser_mode:
+                points.append(
+                    (x, y)
+                )
+
+                # -----------------------------
+                # Display point count
+                # -----------------------------
+
+                cv2.putText(
+                    frame,
+                    "POINTS: " + str(len(points)),
+                    (20, 150),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 0),
+                    2
+                )
+
+                # -----------------------------
+                # Show current mode
+                # -----------------------------
+
+                if shape_mode:
 
                     cv2.putText(
                         frame,
-                        "ERASER",
+                        "SHAPE MODE",
                         (20, 110),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         1,
-                        (100, 100, 100),
+                        (0, 0, 255),
                         2
                     )
-
-                # -----------------------------
-                # Show DRAWING
-                # -----------------------------
 
                 else:
 
                     cv2.putText(
                         frame,
-                        "DRAWING",
+                        "DRAWING MODE",
                         (20, 110),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         1,
@@ -328,7 +348,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
                             5
                         )
 
+                # -----------------------------
                 # Update previous position
+                # -----------------------------
 
                 prev_x = x
                 prev_y = y
@@ -337,7 +359,7 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
                 cv2.putText(
                     frame,
-                    "NOT DRAWING",
+                    "READY",
                     (20, 110),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1,
@@ -362,7 +384,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
         else:
 
+            # -----------------------------
             # No hand detected
+            # -----------------------------
 
             prev_x = None
             prev_y = None
@@ -406,15 +430,15 @@ with HandLandmarker.create_from_options(options) as landmarker:
             )
 
         # -----------------------------
-        # Show keyboard instructions
+        # Instructions
         # -----------------------------
 
         cv2.putText(
             frame,
-            "Z: Undo   Y: Redo   Q: Quit",
+            "D: Draw   S: Shape Mode   Z: Undo   Y: Redo   Q: Quit",
             (20, h - 20),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
+            0.55,
             (0, 0, 0),
             2
         )
@@ -440,10 +464,30 @@ with HandLandmarker.create_from_options(options) as landmarker:
         key = cv2.waitKey(1) & 0xFF
 
         # -----------------------------
+        # Drawing mode
+        # -----------------------------
+
+        if key == ord("d"):
+
+            shape_mode = False
+
+            points.clear()
+
+        # -----------------------------
+        # Shape mode
+        # -----------------------------
+
+        elif key == ord("s"):
+
+            shape_mode = True
+
+            points.clear()
+
+        # -----------------------------
         # Undo
         # -----------------------------
 
-        if key == ord("z"):
+        elif key == ord("z"):
 
             if len(undo_stack) > 0:
 
@@ -455,6 +499,8 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
             prev_x = None
             prev_y = None
+
+            points.clear()
 
         # -----------------------------
         # Redo
@@ -472,6 +518,8 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
             prev_x = None
             prev_y = None
+
+            points.clear()
 
         # -----------------------------
         # Quit
