@@ -3,9 +3,9 @@ import mediapipe as mp
 import numpy as np
 import math
 
-# -----------------------------
-# MediaPipe setup
-# -----------------------------
+# ============================================================
+# MEDIAPIPE SETUP
+# ============================================================
 
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
@@ -20,15 +20,11 @@ options = HandLandmarkerOptions(
     num_hands=1
 )
 
-# -----------------------------
-# Webcam
-# -----------------------------
+# ============================================================
+# CAMERA
+# ============================================================
 
 cap = cv2.VideoCapture(0)
-
-# -----------------------------
-# Read first frame
-# -----------------------------
 
 ret, frame = cap.read()
 
@@ -41,62 +37,52 @@ frame = cv2.flip(frame, 1)
 
 h, w, _ = frame.shape
 
-# -----------------------------
-# White drawing canvas
-# -----------------------------
+# ============================================================
+# CANVAS
+# ============================================================
 
 canvas = 255 * np.ones(
     (h, w, 3),
     dtype="uint8"
 )
 
-# -----------------------------
-# Drawing variables
-# -----------------------------
+# ============================================================
+# DRAWING VARIABLES
+# ============================================================
 
 prev_x = None
 prev_y = None
 
-# -----------------------------
-# Shape points
-# -----------------------------
+# ============================================================
+# SHAPE VARIABLES
+# ============================================================
 
 points = []
-
-# -----------------------------
-# Shape mode
-# -----------------------------
-
 shape_mode = False
+shape_name = ""
 
-# -----------------------------
-# Undo / Redo
-# -----------------------------
+# ============================================================
+# UNDO / REDO
+# ============================================================
 
 undo_stack = []
 redo_stack = []
 
-# -----------------------------
-# Current color
-# -----------------------------
+# ============================================================
+# COLOR
+# ============================================================
 
 current_color = (255, 0, 0)
 
-# -----------------------------
-# Eraser
-# -----------------------------
+# ============================================================
+# ERASER
+# ============================================================
 
 eraser_mode = False
 
-# -----------------------------
-# Last recognized shape
-# -----------------------------
-
-shape_name = ""
-
-# -----------------------------
-# Color palette
-# -----------------------------
+# ============================================================
+# COLORS
+# ============================================================
 
 colors = [
     ((0, 0, 255), "RED"),
@@ -109,12 +95,8 @@ colors = [
 
 
 # ============================================================
-# SHAPE RECOGNITION FUNCTIONS
+# DISTANCE FUNCTION
 # ============================================================
-
-# -----------------------------
-# Calculate distance
-# -----------------------------
 
 def distance(p1, p2):
 
@@ -124,158 +106,165 @@ def distance(p1, p2):
     )
 
 
-# -----------------------------
-# Recognize shape
-# -----------------------------
+# ============================================================
+# IMPROVED SHAPE RECOGNITION
+# ============================================================
 
 def recognize_shape(points):
 
-    if len(points) < 10:
+    # Need enough points
+    if len(points) < 15:
         return "Unknown", None
 
     # Convert points to NumPy array
-
     pts = np.array(
         points,
         dtype=np.int32
     )
 
-    # -----------------------------
-    # Approximate contour
-    # -----------------------------
+    # --------------------------------------------------------
+    # Bounding rectangle
+    # --------------------------------------------------------
+
+    x, y, width, height = cv2.boundingRect(pts)
+
+    # Shape should have reasonable size
+    if width < 30 or height < 30:
+        return "Unknown", None
+
+    # --------------------------------------------------------
+    # Check whether shape is closed
+    # --------------------------------------------------------
+
+    start = points[0]
+    end = points[-1]
+
+    closing_distance = distance(
+        start,
+        end
+    )
+
+    diagonal = math.sqrt(
+        width * width +
+        height * height
+    )
+
+    if closing_distance > diagonal * 0.35:
+        return "Unknown", None
+
+    # --------------------------------------------------------
+    # Create contour
+    # --------------------------------------------------------
+
+    contour = pts.reshape(
+        (-1, 1, 2)
+    )
+
+    # --------------------------------------------------------
+    # Perimeter
+    # --------------------------------------------------------
 
     perimeter = cv2.arcLength(
-        pts.reshape((-1, 1, 2)),
-        False
+        contour,
+        True
     )
 
     if perimeter == 0:
         return "Unknown", None
 
+    # --------------------------------------------------------
+    # Approximate polygon
+    # --------------------------------------------------------
+
     epsilon = 0.04 * perimeter
 
     approx = cv2.approxPolyDP(
-        pts.reshape((-1, 1, 2)),
+        contour,
         epsilon,
-        False
+        True
     )
 
-    # -----------------------------
-    # Bounding rectangle
-    # -----------------------------
+    corners = len(approx)
 
-    x, y, width, height = cv2.boundingRect(
-        pts
-    )
+    # ========================================================
+    # TRIANGLE
+    # ========================================================
 
-    if width == 0 or height == 0:
-        return "Unknown", None
-
-    # -----------------------------
-    # Check if stroke is closed
-    # -----------------------------
-
-    start_point = points[0]
-    end_point = points[-1]
-
-    closing_distance = distance(
-        start_point,
-        end_point
-    )
-
-    # -----------------------------
-    # Shape recognition
-    # -----------------------------
-
-    number_of_corners = len(approx)
-
-    # -----------------------------
-    # Triangle
-    # -----------------------------
-
-    if (
-        number_of_corners == 3
-        and closing_distance < max(width, height) * 0.35
-    ):
+    if corners == 3:
 
         return "Triangle", approx
 
-    # -----------------------------
-    # Rectangle
-    # -----------------------------
+    # ========================================================
+    # RECTANGLE
+    # ========================================================
 
-    if (
-        number_of_corners == 4
-        and closing_distance < max(width, height) * 0.35
-    ):
+    if corners == 4:
 
-        return "Rectangle", approx
-
-    # -----------------------------
-    # Circle
-    # -----------------------------
-
-    center_x = x + width // 2
-    center_y = y + height // 2
-
-    radius = (width + height) // 4
-
-    if radius > 0:
-
-        center_distances = []
-
-        for point in points:
-
-            d = distance(
-                point,
-                (center_x, center_y)
-            )
-
-            center_distances.append(d)
-
-        average_radius = np.mean(
-            center_distances
+        area = cv2.contourArea(
+            contour
         )
 
-        radius_error = np.mean(
-            np.abs(
-                np.array(center_distances)
-                - average_radius
-            )
+        if area <= 0:
+            return "Unknown", None
+
+        bounding_area = width * height
+
+        fill_ratio = (
+            area / bounding_area
         )
 
-        # A circle should have
-        # similar width and height
+        if fill_ratio > 0.45:
 
-        aspect_ratio = width / height
+            return "Rectangle", approx
 
-        if (
-            0.75 <= aspect_ratio <= 1.25
-            and average_radius > 0
-            and radius_error / average_radius < 0.30
-            and closing_distance < max(width, height) * 0.35
-        ):
+    # ========================================================
+    # CIRCLE
+    # ========================================================
 
-            center = (
-                center_x,
-                center_y
+    aspect_ratio = width / height
+
+    if 0.75 <= aspect_ratio <= 1.25:
+
+        area = cv2.contourArea(
+            contour
+        )
+
+        if area > 0:
+
+            circularity = (
+                4 * math.pi * area
+                / (perimeter * perimeter)
             )
 
-            return "Circle", (
-                center,
-                int(average_radius)
-            )
+            if circularity > 0.60:
 
-    # -----------------------------
-    # Unknown
-    # -----------------------------
+                center_x = (
+                    x + width // 2
+                )
+
+                center_y = (
+                    y + height // 2
+                )
+
+                radius = (
+                    width + height
+                ) // 4
+
+                return "Circle", (
+                    (center_x, center_y),
+                    radius
+                )
+
+    # ========================================================
+    # UNKNOWN
+    # ========================================================
 
     return "Unknown", None
 
 
-# -----------------------------
-# Draw recognized shape
-# -----------------------------
+# ============================================================
+# DRAW RECOGNIZED SHAPE
+# ============================================================
 
 def draw_recognized_shape(
     canvas,
@@ -284,9 +273,9 @@ def draw_recognized_shape(
     color
 ):
 
-    # -----------------------------
+    # --------------------------------------------------------
     # Circle
-    # -----------------------------
+    # --------------------------------------------------------
 
     if shape_name == "Circle":
 
@@ -300,9 +289,9 @@ def draw_recognized_shape(
             5
         )
 
-    # -----------------------------
+    # --------------------------------------------------------
     # Rectangle
-    # -----------------------------
+    # --------------------------------------------------------
 
     elif shape_name == "Rectangle":
 
@@ -316,9 +305,9 @@ def draw_recognized_shape(
             5
         )
 
-    # -----------------------------
+    # --------------------------------------------------------
     # Triangle
-    # -----------------------------
+    # --------------------------------------------------------
 
     elif shape_name == "Triangle":
 
@@ -334,12 +323,16 @@ def draw_recognized_shape(
 
 
 # ============================================================
-# START HAND TRACKING
+# START MEDIAPIPE
 # ============================================================
 
 with HandLandmarker.create_from_options(options) as landmarker:
 
     while True:
+
+        # ----------------------------------------------------
+        # READ CAMERA
+        # ----------------------------------------------------
 
         ret, frame = cap.read()
 
@@ -348,18 +341,15 @@ with HandLandmarker.create_from_options(options) as landmarker:
             print("Camera not detected")
             break
 
-        # -----------------------------
         # Mirror camera
-        # -----------------------------
-
         frame = cv2.flip(
             frame,
             1
         )
 
-        # -----------------------------
-        # Draw palette
-        # -----------------------------
+        # ====================================================
+        # DRAW COLOR PALETTE
+        # ====================================================
 
         box_width = 100
         box_height = 70
@@ -390,9 +380,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 2
             )
 
-        # -----------------------------
-        # Convert BGR to RGB
-        # -----------------------------
+        # ====================================================
+        # MEDIAPIPE IMAGE
+        # ====================================================
 
         rgb = cv2.cvtColor(
             frame,
@@ -404,33 +394,33 @@ with HandLandmarker.create_from_options(options) as landmarker:
             data=rgb
         )
 
-        # -----------------------------
-        # Detect hand
-        # -----------------------------
+        # ====================================================
+        # DETECT HAND
+        # ====================================================
 
         result = landmarker.detect(
             mp_image
         )
 
         # ====================================================
-        # HAND DETECTED
+        # HAND FOUND
         # ====================================================
 
         if result.hand_landmarks:
 
             hand = result.hand_landmarks[0]
 
-            # -----------------------------
-            # Index finger
-            # -----------------------------
+            # ------------------------------------------------
+            # INDEX FINGER UP
+            # ------------------------------------------------
 
             index_up = (
                 hand[8].y < hand[6].y
             )
 
-            # -----------------------------
-            # Fingertip
-            # -----------------------------
+            # ------------------------------------------------
+            # FINGERTIP
+            # ------------------------------------------------
 
             fingertip = hand[8]
 
@@ -472,17 +462,17 @@ with HandLandmarker.create_from_options(options) as landmarker:
                     < len(colors)
                 ):
 
-                    # -----------------------------
-                    # Eraser
-                    # -----------------------------
+                    # -----------------------------------------
+                    # ERASER
+                    # -----------------------------------------
 
                     if color_index == 4:
 
                         eraser_mode = True
 
-                    # -----------------------------
-                    # Clear
-                    # -----------------------------
+                    # -----------------------------------------
+                    # CLEAR
+                    # -----------------------------------------
 
                     elif color_index == 5:
 
@@ -500,9 +490,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
                         eraser_mode = False
 
-                    # -----------------------------
-                    # Normal color
-                    # -----------------------------
+                    # -----------------------------------------
+                    # NORMAL COLOR
+                    # -----------------------------------------
 
                     else:
 
@@ -524,9 +514,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 and y > box_height
             ):
 
-                # -----------------------------
-                # Start of new stroke
-                # -----------------------------
+                # ---------------------------------------------
+                # NEW STROKE
+                # ---------------------------------------------
 
                 if (
                     prev_x is None
@@ -539,23 +529,21 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
                     redo_stack.clear()
 
-                    # Start collecting points
-
                     points = []
 
                     shape_name = ""
 
-                # -----------------------------
-                # Store point
-                # -----------------------------
+                # ---------------------------------------------
+                # STORE POINT
+                # ---------------------------------------------
 
                 points.append(
                     (x, y)
                 )
 
-                # -----------------------------
-                # Display mode
-                # -----------------------------
+                # ---------------------------------------------
+                # STATUS
+                # ---------------------------------------------
 
                 if shape_mode:
 
@@ -593,9 +581,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
                         2
                     )
 
-                # -----------------------------
-                # Draw line
-                # -----------------------------
+                # ---------------------------------------------
+                # DRAW LINE
+                # ---------------------------------------------
 
                 if (
                     prev_x is not None
@@ -606,9 +594,6 @@ with HandLandmarker.create_from_options(options) as landmarker:
                         shape_mode
                         and not eraser_mode
                     ):
-
-                        # Draw temporary
-                        # shape stroke
 
                         cv2.line(
                             canvas,
@@ -641,9 +626,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 prev_x = x
                 prev_y = y
 
-                # -----------------------------
-                # Point count
-                # -----------------------------
+                # ---------------------------------------------
+                # POINT COUNT
+                # ---------------------------------------------
 
                 cv2.putText(
                     frame,
@@ -662,27 +647,28 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
             else:
 
-                # -----------------------------
-                # Shape recognition
-                # -----------------------------
+                # ---------------------------------------------
+                # RECOGNIZE SHAPE
+                # ---------------------------------------------
 
                 if (
                     shape_mode
-                    and len(points) >= 10
+                    and len(points) >= 15
+                    and not eraser_mode
                 ):
 
                     recognized, data = (
                         recognize_shape(points)
                     )
 
-                    # -----------------------------
-                    # Replace rough shape
-                    # -----------------------------
+                    # -----------------------------------------
+                    # RECOGNIZED
+                    # -----------------------------------------
 
                     if recognized != "Unknown":
 
                         # Restore canvas to
-                        # before rough stroke
+                        # state before rough shape
 
                         if len(undo_stack) > 0:
 
@@ -703,20 +689,22 @@ with HandLandmarker.create_from_options(options) as landmarker:
                             recognized
                         )
 
+                    # -----------------------------------------
+                    # UNKNOWN
+                    # -----------------------------------------
+
                     else:
 
                         shape_name = "Unknown"
 
-                # -----------------------------
-                # Reset drawing
-                # -----------------------------
+                # Reset drawing coordinates
 
                 prev_x = None
                 prev_y = None
 
-            # -----------------------------
-            # Fingertip indicator
-            # -----------------------------
+            # =================================================
+            # FINGERTIP DOT
+            # =================================================
 
             cv2.circle(
                 frame,
@@ -726,22 +714,18 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 -1
             )
 
-        else:
+        # ====================================================
+        # NO HAND
+        # ====================================================
 
-            # -----------------------------
-            # No hand
-            # -----------------------------
+        else:
 
             prev_x = None
             prev_y = None
 
         # ====================================================
-        # STATUS
+        # SHOW DETECTED SHAPE
         # ====================================================
-
-        # -----------------------------
-        # Shape result
-        # -----------------------------
 
         if shape_name != "":
 
@@ -756,9 +740,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 2
             )
 
-        # -----------------------------
-        # Current color
-        # -----------------------------
+        # ====================================================
+        # CURRENT COLOR
+        # ====================================================
 
         cv2.putText(
             frame,
@@ -769,10 +753,6 @@ with HandLandmarker.create_from_options(options) as landmarker:
             (0, 0, 0),
             2
         )
-
-        # -----------------------------
-        # Color indicator
-        # -----------------------------
 
         if eraser_mode:
 
@@ -794,9 +774,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 -1
             )
 
-        # -----------------------------
-        # Instructions
-        # -----------------------------
+        # ====================================================
+        # CONTROLS
+        # ====================================================
 
         cv2.putText(
             frame,
@@ -808,18 +788,14 @@ with HandLandmarker.create_from_options(options) as landmarker:
             2
         )
 
-        # -----------------------------
-        # Show camera
-        # -----------------------------
+        # ====================================================
+        # DISPLAY
+        # ====================================================
 
         cv2.imshow(
             "AirCanvas Camera",
             frame
         )
-
-        # -----------------------------
-        # Show canvas
-        # -----------------------------
 
         cv2.imshow(
             "AirCanvas Drawing",
@@ -827,14 +803,14 @@ with HandLandmarker.create_from_options(options) as landmarker:
         )
 
         # ====================================================
-        # KEYBOARD CONTROLS
+        # KEYBOARD
         # ====================================================
 
         key = cv2.waitKey(1) & 0xFF
 
-        # -----------------------------
-        # Drawing mode
-        # -----------------------------
+        # ----------------------------------------------------
+        # D = DRAWING MODE
+        # ----------------------------------------------------
 
         if key == ord("d"):
 
@@ -844,9 +820,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
             shape_name = ""
 
-        # -----------------------------
-        # Shape mode
-        # -----------------------------
+        # ----------------------------------------------------
+        # S = SHAPE MODE
+        # ----------------------------------------------------
 
         elif key == ord("s"):
 
@@ -856,9 +832,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
             shape_name = ""
 
-        # -----------------------------
-        # Undo
-        # -----------------------------
+        # ----------------------------------------------------
+        # Z = UNDO
+        # ----------------------------------------------------
 
         elif key == ord("z"):
 
@@ -877,9 +853,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
             shape_name = ""
 
-        # -----------------------------
-        # Redo
-        # -----------------------------
+        # ----------------------------------------------------
+        # Y = REDO
+        # ----------------------------------------------------
 
         elif key == ord("y"):
 
@@ -898,17 +874,18 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
             shape_name = ""
 
-        # -----------------------------
-        # Quit
-        # -----------------------------
+        # ----------------------------------------------------
+        # Q = QUIT
+        # ----------------------------------------------------
 
         elif key == ord("q"):
 
             break
 
-# -----------------------------
-# Release resources
-# -----------------------------
+
+# ============================================================
+# RELEASE
+# ============================================================
 
 cap.release()
 
